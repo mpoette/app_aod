@@ -51,6 +51,12 @@ rsync -av "LLM et AOD/Data/" michael@aod.scitoul.fr:~/vignettes-aod/Data/
 
 Le `/` final de la source signifie « le contenu de ce dossier », pour ne pas créer `Data/Data`.
 
+Sans `rsync` (Windows avec Git Bash), `scp` fait la même chose, en recopiant tout à chaque fois :
+
+```bash
+scp -r "LLM et AOD/Data/"* michael@aod.scitoul.fr:~/vignettes-aod/Data/
+```
+
 De retour sur le serveur, uv installe Python et les versions exactes figées dans `uv.lock` :
 
 ```bash
@@ -105,6 +111,73 @@ sudo certbot --nginx -d aod.scitoul.fr --redirect
 
 Let's Encrypt vérifie que le nom mène bien à ce serveur, puis Certbot ajoute le HTTPS au site Nginx et redirige HTTP vers HTTPS. Le renouvellement est automatique (`certbot.timer`).
 
+## 6. L'API de benchmark
+
+L'API est un second programme, à côté de l'explorateur : son propre service systemd, son propre port interne
+(8502), publiée par Nginx sous `https://aod.scitoul.fr/api/`. Elle n'utilise pas le mot de passe Nginx mais
+ses **propres clés d'accès**, pour qu'un script puisse s'y connecter sans fenêtre de connexion.
+
+**Les clés d'accès.** On les range hors du dépôt, dans un fichier que seul l'administrateur peut lire
+(`chmod 600`) ; systemd le lit au démarrage et passe son contenu à l'API comme variables d'environnement.
+`openssl rand -hex 32` génère une clé aléatoire de 64 caractères :
+
+```bash
+sudo mkdir -p /etc/vignettes-aod && echo "AOD_API_KEYS=$(openssl rand -hex 32)" | sudo tee /etc/vignettes-aod/api.env > /dev/null && sudo chmod 600 /etc/vignettes-aod/api.env
+```
+
+```bash
+sudo cat /etc/vignettes-aod/api.env
+```
+
+Notez la clé affichée : c'est elle que le script de benchmark utilisera (`AOD_API_KEY`). Pour donner une clé
+distincte à un collègue, ajoutez-la à la suite, séparée par une virgule, puis redémarrez l'API.
+
+**Le service**, sur le même principe que celui de l'explorateur :
+
+```bash
+sudo cp ~/vignettes-aod/deploy/aod-api.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now aod-api
+```
+
+```bash
+curl -s http://127.0.0.1:8502/health
+```
+
+**Nginx.** Attention : le fichier du site sur le serveur a été **modifié par Certbot** (il y a ajouté le
+HTTPS). Ne le remplacez donc pas par celui du dépôt, ajoutez-y le bloc `/api/` à la main :
+
+```bash
+sudo nano /etc/nginx/sites-available/vignettes-aod
+```
+
+Dans le bloc `server` qui contient `listen 443 ssl` (celui où se trouve déjà `location / { ... }`), ajoutez,
+juste après l'accolade fermante de `location /` :
+
+```nginx
+    location /api/ {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:8502/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120;
+    }
+```
+
+- `auth_basic off` : pas de fenêtre de mot de passe pour ce chemin, l'API vérifie elle-même sa clé.
+- Le `/` final de `proxy_pass http://127.0.0.1:8502/` retire le préfixe : une requête vers `/api/vignettes`
+  arrive à l'API comme `/vignettes`. L'option `--root-path /api` du service permet à l'API de savoir
+  qu'elle est publiée sous `/api` (pour sa page de documentation).
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Vérification depuis votre ordinateur : `https://aod.scitoul.fr/api/health` doit répondre `{"statut":"ok"}`,
+et `https://aod.scitoul.fr/api/docs` affiche la documentation interactive. Les essais sont stockés dans
+`~/vignettes-aod/state/benchmark.sqlite` (non versionné).
+
 ## Mises à jour
 
 **Nouvelles données** : relancer le `rsync` de l'étape 2. Rien à redémarrer, l'app détecte les fichiers modifiés au rechargement de la page.
@@ -112,10 +185,10 @@ Let's Encrypt vérifie que le nom mène bien à ce serveur, puis Certbot ajoute 
 **Nouvelle version du code** (après un `git push` depuis votre ordinateur) :
 
 ```bash
-cd ~/vignettes-aod && git pull && uv sync --frozen && sudo systemctl restart vignettes-aod
+cd ~/vignettes-aod && git pull && uv sync --frozen && sudo systemctl restart vignettes-aod aod-api
 ```
 
-`git pull` récupère le code, `uv sync` installe d'éventuelles nouvelles dépendances, et le redémarrage est nécessaire car un programme en cours d'exécution ne relit pas son code.
+`git pull` récupère le code, `uv sync` installe d'éventuelles nouvelles dépendances, et le redémarrage des deux services est nécessaire car un programme en cours d'exécution ne relit pas son code. Les nouvelles données, elles, sont prises en compte sans redémarrage par l'explorateur comme par l'API.
 
 ## Héberger d'autres apps sur le même VPS
 

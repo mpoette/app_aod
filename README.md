@@ -3,8 +3,12 @@
 Application [Streamlit](https://streamlit.io) pour explorer les vignettes cliniques d'une étude sur la
 **gestion préopératoire des anticoagulants** (AOD, AVK, héparines), et les réponses recueillies via REDCap.
 
-Pour chaque vignette, l'app affiche le texte du cas, la **réponse majoritaire** à chaque question et la
-**dispersion** des réponses. Les cas peuvent être filtrés et triés selon leurs métadonnées.
+Le dépôt contient deux outils qui partagent le même noyau (`aod/`) :
+
+- **l'explorateur** (`app.py`, Streamlit) : pour chaque vignette, le texte du cas, la **réponse majoritaire**
+  à chaque question et la **dispersion** des réponses ; filtres et tri selon les métadonnées ;
+- **l'API de benchmark** (`api.py`, FastAPI) : distribue les vignettes à un LLM et corrige ses réponses par
+  rapport à la réponse majoritaire des humains (voir [Benchmark des LLM](#benchmark-des-llm)).
 
 ## Fonctionnalités
 
@@ -33,12 +37,80 @@ AOD_DATA_DIR="/chemin/vers/Data" uv run streamlit run app.py
 
 Ajouter une dépendance : `uv add <paquet>` ; mettre à jour : `uv lock --upgrade && uv sync`.
 
+## Benchmark des LLM
+
+Le principe : un script (sur votre ordinateur) crée un **essai**, demande les vignettes une par une à l'API,
+les soumet au LLM, renvoie chaque sortie à l'API, qui la **corrige** et l'enregistre. L'API n'appelle
+jamais le LLM elle-même : elle fonctionne avec n'importe quel modèle, et aucune clé de fournisseur n'est
+stockée sur le serveur.
+
+```
+script ──POST /runs──────────────────────────▶ API   (crée l'essai, fige la référence)
+       ──GET /vignettes/{cas}?preprompt=true─▶ API   (prompt à soumettre)
+       ──── prompt ──▶ LLM ──── sortie ────┐
+       ──POST /runs/{id}/reponses/{cas}────┴─▶ API   (renvoie la grille de correction)
+       ──GET /runs/{id}──────────────────────▶ API   (bilan de l'essai)
+```
+
+### Lancer l'API en local
+
+```bash
+AOD_API_KEYS=dev uv run uvicorn api:app --port 8502
+```
+
+Documentation interactive (essayer chaque requête depuis le navigateur) : <http://127.0.0.1:8502/docs>.
+Toutes les requêtes, sauf `/health`, exigent une clé : en-tête `Authorization: Bearer <clé>`
+ou `X-API-Key: <clé>`. Les clés autorisées sont listées dans `AOD_API_KEYS` (séparées par des virgules).
+
+### Benchmarker un modèle Claude
+
+```bash
+export AOD_API_KEY=dev                      # clé de l'API de benchmark
+export ANTHROPIC_API_KEY=...                # clé de l'API Anthropic
+uv run bench/benchmark_claude.py --api http://127.0.0.1:8502 --modele claude-opus-5-5
+```
+
+Options : `--sans-preprompt`, `--effort low|medium|high|xhigh|max`, `--roles expert_clot expert_gihp`
+(référence restreinte à certains rôles), `--min-repondants 2`, `--cas 1 5 6`, `--notes "..."`.
+Pour un autre fournisseur, remplacer la fonction `interroger_claude` du script.
+
+### Règles de correction
+
+- La réponse attendue est l'objet JSON décrit dans `Data/preprompt.txt` ; le JSON est extrait de la sortie
+  (un bloc ```` ```json ```` est toléré).
+- **Juste** = la valeur fait partie des modalités majoritaires ; en cas d'égalité, n'importe laquelle des
+  modalités ex æquo valide. Même règle pour la **stratégie globale**, verdict principal de chaque cas.
+- **Référence paramétrable** : tous les répondants par défaut, ou certains rôles seulement (`roles`), avec un
+  nombre minimal de répondants (`min_repondants`). Elle est **figée à la création de l'essai**, avec
+  l'empreinte des données (`version_donnees`) : un essai reste comparable même si de nouvelles réponses
+  humaines arrivent ensuite.
+- Question sans référence humaine : `non_evaluable`. Question conditionnelle (dernière prise, relais, début
+  du relais) qui ne s'applique pas à la réponse du LLM : `non_applicable` (la stratégie porte le verdict).
+- Sortie illisible, valeur hors liste ou champ requis manquant : **erreur de format** (`format_valide: false`),
+  comptée à part des erreurs cliniques.
+- Un **refus** du modèle compte comme une stratégie non trouvée ; une **erreur d'appel** (réseau, clé) est
+  exclue du calcul et peut être relancée (`--cas`).
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+Les tests de notation utilisent des références construites à la main ; le test de bout en bout de l'API
+s'exécute seulement si des données sont présentes dans `Data/`.
+
 ## Organisation du code
 
 | Fichier | Rôle |
 |---|---|
-| `app.py` | Interface Streamlit : filtres, tri, fiches des vignettes, graphiques |
-| `data_loader.py` | Lecture des fichiers (XML REDCap, CSV, XLSX), décodage des réponses, calcul majorité / accord |
+| `app.py` | Explorateur Streamlit : filtres, tri, fiches des vignettes, graphiques |
+| `api.py` | API de benchmark (FastAPI) |
+| `aod/data.py` | Lecture des fichiers (XML REDCap, CSV, XLSX), décodage des réponses, calcul majorité / accord |
+| `aod/scoring.py` | Référence, lecture et validation des sorties de LLM, grille de correction, bilan |
+| `aod/store.py` | Stockage des essais et des réponses (SQLite, dans `state/`, non versionné) |
+| `bench/benchmark_claude.py` | Script client : benchmark d'un modèle Claude |
+| `tests/` | Tests (`uv run pytest`) |
 | `pyproject.toml`, `uv.lock`, `.python-version` | Projet uv : dépendances et versions figées |
 | `.streamlit/config.toml` | Configuration Streamlit |
 | `deploy/` | Fichiers et guide de déploiement sur un VPS (systemd, Nginx, HTTPS) |

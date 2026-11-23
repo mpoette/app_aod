@@ -10,3 +10,6 @@ __pycache__/
 # Système
 .DS_Store
 Thumbs.db
+
+# Base des essais de benchmark (API)
+state/

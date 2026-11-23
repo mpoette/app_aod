@@ -11,6 +11,7 @@ de la même spécialité dans Métadonnées.xlsx (ordre des lignes).
 from __future__ import annotations
 
 import difflib
+import hashlib
 import html
 import re
 import unicodedata
@@ -118,6 +119,33 @@ def parse_redcap_xml(path: Path) -> tuple[str, dict[int, dict], dict[str, Item]]
                 "html": _clean_html(fmt) or html.escape(text or "").replace("\n", "<br>"),
             }
     return titre, vignettes, items
+
+
+def html_to_text(raw_html: str) -> str:
+    """HTML nettoyé d'une vignette → texte brut lisible (listes à puces conservées), pour les prompts."""
+    s = re.sub(r"\s*<li>\s*", "\n- ", raw_html)
+    s = re.sub(r"\s*</(p|ul|ol)>\s*", "\n", s)
+    s = re.sub(r"<br>", "\n", s)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r" *\n *", "\n", s)
+    s = re.sub(r"\n{2,}", "\n", s)
+    return s.strip()
+
+
+def data_fingerprint(data_dir: Path) -> str:
+    """Empreinte du contenu de Data/ : identifie la version des données utilisée par un benchmark."""
+    h = hashlib.sha256()
+    for p in sorted(data_dir.rglob("*")):
+        if p.is_file() and not p.name.startswith("."):
+            h.update(str(p.relative_to(data_dir)).encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def load_preprompt(data_dir: Path) -> str | None:
+    p = data_dir / "preprompt.txt"
+    return p.read_text(encoding="utf-8").strip() if p.exists() else None
 
 
 def _latest(files: list[Path]) -> Path | None:
@@ -243,6 +271,7 @@ def build_dataset(data_dir: Path) -> Dataset:
             **{c: m.get(c) for c in META_COLUMNS},
             "Urgence immédiate": bool(p and f"reversion_v{n}" in p.items),
             "texte": v["text"] if v else "",
+            "texte_prompt": html_to_text(v["html"]) if v else "",
             "html": v["html"] if v else "",
             "projet": p.titre if p else "",
         })
@@ -264,6 +293,7 @@ def build_dataset(data_dir: Path) -> Dataset:
                 "case_id": int(m["num"]),
                 "respondant": f"{p.specialite[:4]}-{r.get('record_id')}",
                 "role": ROLE_LABELS.get(role, role),
+                "role_code": role,
                 "experience": r.get("mar_vasc_exp"),
                 "confiance": dec["confiance"],
                 "source": "Humain",
@@ -284,7 +314,7 @@ def build_dataset(data_dir: Path) -> Dataset:
         "Relais héparine": ["Non", "HBPM", "HNF"],
     })
     answers = pd.DataFrame(rows_ans, columns=[
-        "case_id", "respondant", "role", "experience", "confiance", "source", "question", "valeur"])
+        "case_id", "respondant", "role", "role_code", "experience", "confiance", "source", "question", "valeur"])
     return Dataset(pd.DataFrame(rows_case), answers, order)
 
 
@@ -315,9 +345,10 @@ def summarize(answers: pd.DataFrame) -> pd.DataFrame:
             "case_id": cid,
             "question": q,
             "majoritaire": " / ".join(map(str, majo)) + (" (égalité)" if len(majo) > 1 else ""),
+            "majoritaires": majo,
             "accord": best / n,
             "n": n,
             "n_modalites": len(cnt),
             "distribution": dict(cnt),
         })
-    return pd.DataFrame(out, columns=["case_id", "question", "majoritaire", "accord", "n", "n_modalites", "distribution"])
+    return pd.DataFrame(out, columns=["case_id", "question", "majoritaire", "majoritaires", "accord", "n", "n_modalites", "distribution"])

@@ -13,7 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from data_loader import (
+from aod.data import (
     META_COLUMNS, QUESTIONS, STRATEGIE, build_dataset, sort_values, summarize,
 )
 

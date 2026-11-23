@@ -1,0 +1,20 @@
+# Service systemd de l'API de benchmark (FastAPI servie par uvicorn).
+# À copier dans /etc/systemd/system/aod-api.service (voir deploy/README.md).
+
+[Unit]
+Description=API de benchmark LLM - vignettes AOD
+After=network.target
+
+[Service]
+User=michael
+WorkingDirectory=/home/michael/vignettes-aod
+# Clés d'accès (AOD_API_KEYS=...) : fichier lisible par root seulement, hors du dépôt
+EnvironmentFile=/etc/vignettes-aod/api.env
+Environment=AOD_STATE_DIR=/home/michael/vignettes-aod/state
+# 127.0.0.1 : joignable uniquement via Nginx ; --root-path : l'API est publiée sous /api
+ExecStart=/home/michael/.local/bin/uv run --frozen uvicorn api:app --host 127.0.0.1 --port 8502 --root-path /api --proxy-headers
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
