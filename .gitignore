@@ -1,0 +1,12 @@
+# Données de l'étude : jamais versionnées (réponses des participants)
+Data/*
+!Data/README.md
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Système
+.DS_Store
+Thumbs.db

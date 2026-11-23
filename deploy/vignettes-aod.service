@@ -1,0 +1,18 @@
+# Service systemd : lance l'app en permanence et la relance en cas d'arrêt.
+# À copier dans /etc/systemd/system/vignettes-aod.service (voir deploy/README.md).
+# Adapter « michael » si l'app est installée sous un autre compte.
+
+[Unit]
+Description=Vignettes AOD (Streamlit)
+After=network.target
+
+[Service]
+User=michael
+WorkingDirectory=/home/michael/vignettes-aod
+# 127.0.0.1 : l'app n'est joignable que depuis le serveur lui-même (donc via Nginx)
+ExecStart=/home/michael/.local/bin/uv run --frozen streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
