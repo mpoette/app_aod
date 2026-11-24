@@ -117,6 +117,14 @@ L'API est un second programme, à côté de l'explorateur : son propre service s
 (8502), publiée par Nginx sous `https://aod.scitoul.fr/api/`. Elle n'utilise pas le mot de passe Nginx mais
 ses **propres clés d'accès**, pour qu'un script puisse s'y connecter sans fenêtre de connexion.
 
+**Le code.** Si l'explorateur a été installé avant l'arrivée de l'API, le clone du serveur ne contient pas
+encore `api.py` ni les nouvelles dépendances (FastAPI, uvicorn) : on le met d'abord à jour. Le redémarrage
+de l'explorateur est indispensable, car son code a changé lui aussi (`data_loader.py` est devenu `aod/data.py`) :
+
+```bash
+cd ~/vignettes-aod && git pull && uv sync --frozen && sudo systemctl restart vignettes-aod
+```
+
 **Les clés d'accès.** On les range hors du dépôt, dans un fichier que seul l'administrateur peut lire
 (`chmod 600`) ; systemd le lit au démarrage et passe son contenu à l'API comme variables d'environnement.
 `openssl rand -hex 32` génère une clé aléatoire de 64 caractères :
