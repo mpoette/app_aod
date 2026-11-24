@@ -86,6 +86,11 @@ def interroger_claude(client: anthropic.Anthropic, prompt: str, modele: str, eff
             messages=[{"role": "user", "content": prompt}],
             **kwargs,
         )
+    except (anthropic.AuthenticationError, anthropic.PermissionDeniedError,
+            anthropic.NotFoundError, anthropic.BadRequestError) as e:
+        # Problème de configuration (clé, modèle, paramètre) : il se répéterait sur tous les cas.
+        sys.exit(f"Appel à Claude refusé (HTTP {e.status_code}) : {e.message}\n"
+                 "Vérifiez ANTHROPIC_API_KEY, le nom du modèle et les options, puis relancez.")
     except anthropic.RateLimitError as e:
         return None, "erreur", {"erreur": f"limite de débit : {e.message}"}
     except anthropic.APIStatusError as e:
@@ -125,6 +130,10 @@ def main():
     p.add_argument("--cas", nargs="*", type=int, default=None, help="Ne traiter que ces cas")
     p.add_argument("--notes", default="", help="Note libre enregistrée avec l'essai")
     args = p.parse_args()
+    # Sous Windows (Git Bash, redirection vers un fichier), la sortie est en cp1252 : sans cela,
+    # l'affichage de ✓ / ✗ planterait après le premier appel à Claude.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
     cle = os.environ.get("AOD_API_KEY")
     if not cle:
