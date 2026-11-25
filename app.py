@@ -91,7 +91,7 @@ def colors_for(question: str, modalities: list, mode: str) -> dict:
 
 # ----------------------------------------------------------------------------- données
 @st.cache_data(show_spinner="Lecture des fichiers REDCap…")
-def load(data_dir: str, _mtime: float):
+def load(data_dir: str, mtime: float):
     return build_dataset(Path(data_dir))
 
 
@@ -100,7 +100,7 @@ def data_mtime(d: Path) -> float:
 
 
 @st.cache_data(show_spinner="Lecture des essais de LLM…")
-def load_runs(path: str, _mtime: float):
+def load_runs(path: str, mtime: float):
     return resultats.charger(Path(path))
 
 
