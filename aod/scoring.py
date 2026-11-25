@@ -141,7 +141,8 @@ def construire_reference(cases: pd.DataFrame, answers: pd.DataFrame,
                          roles: list[str] | None = None, min_repondants: int = 1) -> dict[str, dict]:
     """Référence par cas : modalités majoritaires par question, calculées sur les rôles choisis.
 
-    `roles` : codes REDCap (interne_ar, mar_vasculaire, mar_autre, expert_clot, expert_gihp) ;
+    `roles` : codes REDCap (interne_ar, mar_vasculaire, mar_autre, expert_clot, expert_gihp)
+    et « rcp » (décision de la RCP thrombose) ;
     None = tous les répondants. Clés du dictionnaire : identifiant du cas sous forme de texte
     (pour être sérialisable en JSON tel quel).
     """
@@ -244,8 +245,7 @@ def _declenche(cle: str, valeurs: dict) -> bool:
 # --------------------------------------------------------------------------- bilan d'un essai
 
 def bilan(grilles: list[dict], reference: dict[str, dict], cases: pd.DataFrame) -> dict:
-    """Synthèse d'un essai : taux de stratégies justes, par question, par spécialité."""
-    spe = cases.set_index("case_id")["Spécialité"].to_dict()
+    """Synthèse d'un essai : taux de stratégies justes, par question, par spécialité, par origine."""
     n_eval = sum(r["evaluable"] for r in reference.values())
     # une erreur technique (réseau, clé…) n'est pas une réponse du modèle : elle est exclue du calcul
     # (relancer le cas) ; un refus, lui, compte comme une stratégie non trouvée
@@ -262,14 +262,16 @@ def bilan(grilles: list[dict], reference: dict[str, dict], cases: pd.DataFrame) 
         par_question[cle] = {"libelle": label, "justes": st.count("juste"), "evaluees": n,
                              "taux": round(st.count("juste") / n, 3) if n else None}
 
-    par_spe: dict[str, dict] = {}
-    for g in notees:
-        s = spe.get(int(g["cas"]), "?")
-        d = par_spe.setdefault(s, {"justes": 0, "repondus": 0})
-        d["repondus"] += 1
-        d["justes"] += g["grille"]["strategie"]["statut"] == "juste"
-    for d in par_spe.values():
-        d["taux"] = round(d["justes"] / d["repondus"], 3) if d["repondus"] else None
+    def par(colonne: str) -> dict[str, dict]:
+        groupe = cases.set_index("case_id")[colonne].to_dict() if colonne in cases else {}
+        out: dict[str, dict] = {}
+        for g in notees:
+            d = out.setdefault(groupe.get(int(g["cas"]), "?"), {"justes": 0, "repondus": 0})
+            d["repondus"] += 1
+            d["justes"] += g["grille"]["strategie"]["statut"] == "juste"
+        for d in out.values():
+            d["taux"] = round(d["justes"] / d["repondus"], 3) if d["repondus"] else None
+        return out
 
     return {
         "cas_evaluables": n_eval,
@@ -279,5 +281,6 @@ def bilan(grilles: list[dict], reference: dict[str, dict], cases: pd.DataFrame) 
         "refus": refus,
         "erreurs_api": erreurs_api,
         "par_question": par_question,
-        "par_specialite": par_spe,
+        "par_specialite": par("Spécialité"),
+        "par_origine": par("Origine"),
     }

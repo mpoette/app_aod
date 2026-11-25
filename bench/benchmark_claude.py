@@ -15,6 +15,7 @@ Lancer (uv installe les dépendances automatiquement) :
     uv run bench/benchmark_claude.py --modele claude-opus-5-5
 
 Options utiles : --sans-preprompt, --effort high, --roles expert_clot expert_gihp,
+--roles rcp (seulement les vignettes de la RCP thrombose, cas 101 et suivants),
 --cas 1 5 6 (quelques cas seulement), --api http://127.0.0.1:8502 (API locale).
 
 Pour un autre fournisseur de LLM, il suffit de remplacer la fonction `interroger_claude`
@@ -174,6 +175,10 @@ def main():
     for q in b["par_question"].values():
         if q["evaluees"]:
             print(f"  {q['libelle']:<22} {q['justes']}/{q['evaluees']} ({q['taux']:.0%})")
+    if len(b.get("par_origine", {})) > 1:
+        print("Stratégie juste par origine :")
+        for nom, d in b["par_origine"].items():
+            print(f"  {nom:<22} {d['justes']}/{d['repondus']} ({d['taux']:.0%})")
     print(f"\nDétail : GET {args.api}/runs/{run['id']}/reponses")
 
 

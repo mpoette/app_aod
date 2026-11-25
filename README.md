@@ -12,12 +12,15 @@ Le dépôt contient deux outils qui partagent le même noyau (`aod/`) :
 
 ## Fonctionnalités
 
-- **Vignettes** : texte du cas et métadonnées (spécialité, sexe, ATC, délai, indication, fonction rénale, ALR) ;
+- **Vignettes** : texte du cas et métadonnées (spécialité, sexe, ATC, délai, indication, fonction rénale, ALR,
+  origine) ;
   réponse majoritaire et taux d'accord par question ; barres de dispersion ; réponses individuelles.
 - **Stratégie globale** : combinaison interruption + jour de dernière prise + relais, ou réversion en urgence immédiate.
 - **Filtres** : métadonnées, rôle des répondants, nombre minimal de répondants, recherche dans le texte.
 - **Tri** multicritère : métadonnées, accord, confiance, nombre de répondants.
 - **Vue d'ensemble** : tableau récapitulatif exportable en CSV, carte de l'accord cas × question, accord selon une métadonnée.
+- **Vignettes de la RCP thrombose** : fondues parmi les cas de l'étude (cas 101 et suivants), repérables par
+  la métadonnée *Origine* = « RCP » ; leur référence est la décision de la RCP (voir [Méthode](#méthode)).
 
 ## Lancer en local
 
@@ -74,7 +77,8 @@ uv run bench/benchmark_claude.py --api http://127.0.0.1:8502 --modele claude-opu
 ```
 
 Options : `--sans-preprompt`, `--effort low|medium|high|xhigh|max`, `--roles expert_clot expert_gihp`
-(référence restreinte à certains rôles), `--min-repondants 2`, `--cas 1 5 6`, `--notes "..."`.
+(référence restreinte à certains rôles ; `--roles rcp` = seulement les vignettes de la RCP),
+`--min-repondants 2`, `--cas 1 5 6`, `--notes "..."`.
 Pour un autre fournisseur, remplacer la fonction `interroger_claude` du script.
 
 ### Règles de correction
@@ -86,7 +90,7 @@ Pour un autre fournisseur, remplacer la fonction `interroger_claude` du script.
 - **Référence paramétrable** : tous les répondants par défaut, ou certains rôles seulement (`roles`), avec un
   nombre minimal de répondants (`min_repondants`). Elle est **figée à la création de l'essai**, avec
   l'empreinte des données (`version_donnees`) : un essai reste comparable même si de nouvelles réponses
-  humaines arrivent ensuite.
+  humaines arrivent ensuite. Le bilan d'un essai est aussi ventilé par spécialité et par origine (étude / RCP).
 - Question sans référence humaine : `non_evaluable`. Question conditionnelle (dernière prise, relais, début
   du relais) qui ne s'applique pas à la réponse du LLM : `non_applicable` (la stratégie porte le verdict).
 - Sortie illisible, valeur hors liste ou champ requis manquant : **erreur de format** (`format_valide: false`),
@@ -100,8 +104,8 @@ Pour un autre fournisseur, remplacer la fonction `interroger_claude` du script.
 uv run pytest
 ```
 
-Les tests de notation utilisent des références construites à la main ; le test de bout en bout de l'API
-s'exécute seulement si des données sont présentes dans `Data/`.
+Les tests de notation utilisent des références construites à la main, ceux des vignettes de la RCP un petit
+fichier fictif ; le test de bout en bout de l'API s'exécute seulement si des données sont présentes dans `Data/`.
 
 ## Organisation du code
 
@@ -110,6 +114,7 @@ s'exécute seulement si des données sont présentes dans `Data/`.
 | `app.py` | Explorateur Streamlit : filtres, tri, fiches des vignettes, graphiques |
 | `api.py` | API de benchmark (FastAPI) |
 | `aod/data.py` | Lecture des fichiers (XML REDCap, CSV, XLSX), décodage des réponses, calcul majorité / accord |
+| `aod/rcp.py` | Lecture des vignettes de la RCP thrombose (`Data/RCP/*.xlsx`) |
 | `aod/scoring.py` | Référence, lecture et validation des sorties de LLM, grille de correction, bilan |
 | `aod/store.py` | Stockage des essais et des réponses (SQLite, dans `state/`, non versionné) |
 | `bench/benchmark_claude.py` | Script client : benchmark d'un modèle Claude |
@@ -124,6 +129,14 @@ s'exécute seulement si des données sont présentes dans `Data/`.
   (colonne `Xie`). Ses vignettes sont associées, dans l'ordre, à un bloc contigu de « Cas clinique N ». Si un projet
   REDCap couvre plusieurs spécialités (ex. viscérale + urologie), le bloc est étendu là où le sexe du patient
   (premier mot de la vignette) concorde avec les métadonnées.
+- **Vignettes de la RCP thrombose** (`Data/RCP/*.xlsx`, feuille « Vignettes ») : le cas *n* du fichier devient
+  le cas 100 + *n*, pour ne jamais entrer en collision avec ceux de l'étude. La RCP compte comme un répondant
+  unique (rôle `rcp`, sans niveau de confiance). Seules les réponses qu'elle a écrites explicitement sont
+  retenues : une cellule vide reste sans réponse (un relais vide n'est pas un « sans relais »), et la stratégie
+  globale n'est retenue que si tous ses éléments sont précisés. Sexe, ATC, Délais, Fonction rénale et ALR sont
+  lus dans le fichier s'il en a la colonne, sinon déduits du texte selon les conventions de `Métadonnées.xlsx` ;
+  l'indication, jugement clinique, n'est jamais déduite (colonne `indication` du fichier, sinon « Non renseigné »).
+  Les colonnes de traçabilité (problématique, décision, commentaire, ligne source) ne sont pas lues.
 - **Réponse majoritaire** : modalité la plus fréquente ; les égalités sont affichées.
 - **Accord** : part des répondants ayant donné la réponse majoritaire (100 % = unanimité).
 - **Accord moyen** : moyenne de l'accord sur les questions posées pour le cas (hors stratégie globale).

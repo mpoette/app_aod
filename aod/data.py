@@ -4,6 +4,7 @@ Sources (dossier Data/) :
 - Métadonnées.xlsx            : 1 ligne par « Cas clinique N » (Sexe, ATC, Délais, …, Xie = spécialité)
 - <Spécialité>/*.REDCap.xml   : dictionnaire REDCap (texte des vignettes, questions, listes de choix)
 - <Spécialité>/*_DATA_*.csv   : export REDCap des réponses (1 ligne par répondant)
+- RCP/*.xlsx                  : vignettes de la RCP thrombose et décisions de la RCP (voir aod/rcp.py)
 
 Le n-ième cas d'un projet REDCap (cas_n / *_vn) correspond au n-ième « Cas clinique »
 de la même spécialité dans Métadonnées.xlsx (ordre des lignes).
@@ -46,9 +47,11 @@ ROLE_LABELS = {
     "mar_autre": "MAR non spécialisé",
     "expert_clot": "Expert CLOT",
     "expert_gihp": "Expert GIHP",
+    "rcp": "RCP",
 }
 
-META_COLUMNS = ["Spécialité", "Sexe", "ATC", "Délais", "Indication", "Fonction rénale", "ALR"]
+# « Origine » : « Étude » (questionnaire REDCap) ou « RCP » (vignettes de la RCP thrombose)
+META_COLUMNS = ["Spécialité", "Sexe", "ATC", "Délais", "Indication", "Fonction rénale", "ALR", "Origine"]
 
 
 def _norm(s: str) -> str:
@@ -269,6 +272,7 @@ def build_dataset(data_dir: Path) -> Dataset:
             "Cas": f"Cas {int(m['num'])}",
             "n_local": n,
             **{c: m.get(c) for c in META_COLUMNS},
+            "Origine": "Étude",
             "Urgence immédiate": bool(p and f"reversion_v{n}" in p.items),
             "texte": v["text"] if v else "",
             "texte_prompt": html_to_text(v["html"]) if v else "",
@@ -304,6 +308,11 @@ def build_dataset(data_dir: Path) -> Dataset:
             strat = _strategie(dec)
             if strat:
                 rows_ans.append({**base, "question": STRATEGIE, "valeur": strat})
+
+    from aod.rcp import charger_rcp  # import local : aod.rcp réutilise ce module
+    cas_rcp, rep_rcp = charger_rcp(data_dir, META_COLUMNS)
+    rows_case += cas_rcp
+    rows_ans += rep_rcp
 
     order.update({
         "Risque hémorragique": order.pop("risque_hem", ["Faible", "Élevé", "Très élevé", "Je ne sais pas"]),

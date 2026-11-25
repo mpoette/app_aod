@@ -13,7 +13,9 @@ Data/
 │   └── *_DATA_*.csv          # réponses (export REDCap, séparateur « ; »)
 ├── Viscerale/                # contient aussi les cas d'urologie
 ├── Orthopédie/               # XML seul tant qu'il n'y a pas de réponses
-└── Neurochirurgie/
+├── Neurochirurgie/
+└── RCP/                      # vignettes de la RCP thrombose
+    └── *.xlsx                # feuille « Vignettes » : cas, specialite, vignette, risque_hem, …, dosage
 ```
 
 Si plusieurs exports sont présents dans un sous-dossier, le plus récent (ordre alphabétique) est utilisé.

@@ -26,7 +26,8 @@ from aod.scoring import bilan, construire_reference, noter
 from aod.store import Store
 
 ICI = Path(__file__).resolve().parent
-ROLES = ["interne_ar", "mar_vasculaire", "mar_autre", "expert_clot", "expert_gihp"]
+# « rcp » : la décision de la RCP thrombose, seul répondant des cas d'origine « RCP »
+ROLES = ["interne_ar", "mar_vasculaire", "mar_autre", "expert_clot", "expert_gihp", "rcp"]
 
 
 def _dossier_donnees() -> Path:
@@ -96,6 +97,9 @@ app = FastAPI(
         "Déroulé : `POST /runs` (créer un essai) → pour chaque cas `GET /vignettes/{cas}` "
         "(prompt à soumettre au LLM) → `POST /runs/{run_id}/reponses/{cas}` (sortie du LLM, "
         "renvoie la grille de correction) → `GET /runs/{run_id}` (bilan).\n\n"
+        "Les cas 101 et suivants (métadonnée `Origine` = « RCP ») viennent de la RCP thrombose : leur "
+        "référence est la décision de la RCP (rôle `rcp`). `roles: [\"rcp\"]` limite un essai à ces cas ; "
+        "une liste de rôles sans `rcp` le limite aux cas de l'étude.\n\n"
         "Authentification : en-tête `Authorization: Bearer <clé>` ou `X-API-Key: <clé>`."
     ),
     version="0.1.0",
@@ -128,6 +132,7 @@ def health():
          summary="Liste des cas et de leurs métadonnées")
 def lister_vignettes(
     specialite: str | None = None,
+    origine: str | None = Query(None, description="« Étude » ou « RCP »"),
     evaluables: bool = Query(False, description="Ne garder que les cas qui ont une référence humaine"),
     roles: list[str] | None = Query(None, description=f"Rôles pris en compte pour la référence : {ROLES}"),
     min_repondants: int = Query(1, ge=1),
@@ -138,6 +143,8 @@ def lister_vignettes(
     for _, c in d.ds.cases.iterrows():
         r = ref[str(int(c["case_id"]))]
         if specialite and c["Spécialité"].lower() != specialite.lower():
+            continue
+        if origine and c["Origine"].lower() != origine.lower():
             continue
         if evaluables and not r["evaluable"]:
             continue

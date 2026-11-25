@@ -236,7 +236,7 @@ def pct(x) -> str:
 
 
 BADGE_COLORS = {"Spécialité": "violet", "ATC": "blue", "Délais": "orange", "Indication": "green",
-                "Fonction rénale": "gray", "ALR": "gray", "Sexe": "gray"}
+                "Fonction rénale": "gray", "ALR": "gray", "Sexe": "gray", "Origine": "red"}
 
 # ----------------------------------------------------------------------------- onglets
 tab_v, tab_o, tab_m = st.tabs(["🗂️ Vignettes", "📊 Vue d'ensemble", "ℹ️ Méthode"])
@@ -250,9 +250,14 @@ with tab_v:
     for _, c in view.iloc[(page - 1) * per_page: page * per_page].iterrows():
         cid = int(c["case_id"])
         n_rep = int(c["Nombre de répondants"])
-        title = (f"**Cas {cid}** · {c['Spécialité']} · {c['ATC']} · {c['Délais']} · {c['Indication']}"
-                 + (f" — stratégie : {c['Stratégie majoritaire']} ({pct(c['Accord sur la stratégie'])})"
-                    if n_rep else " — pas de réponse"))
+        if not n_rep:
+            suffixe = " — pas de réponse"
+        elif pd.isna(c["Stratégie majoritaire"]):
+            suffixe = " — stratégie non tranchée"  # possible pour la RCP, qui ne précise pas toujours tout
+        else:
+            suffixe = f" — stratégie : {c['Stratégie majoritaire']} ({pct(c['Accord sur la stratégie'])})"
+        title = (f"**Cas {cid}**{' (RCP)' if c['Origine'] == 'RCP' else ''} · {c['Spécialité']} · "
+                 f"{c['ATC']} · {c['Délais']} · {c['Indication']}" + suffixe)
         with st.expander(title, expanded=expand_all):
             st.markdown(" ".join(f":{BADGE_COLORS[m]}-badge[{m} : {c[m]}]" for m in META_COLUMNS)
                         + (" :red-badge[Urgence immédiate]" if c["Urgence immédiate"] else ""))
@@ -263,6 +268,9 @@ with tab_v:
                     st.html(f"<div style='line-height:1.55'>{c['html']}</div>")
                 else:
                     st.caption("Texte de la vignette non disponible (pas de fichier REDCap pour cette spécialité).")
+                if c["Origine"] == "RCP":
+                    st.caption("Vignette de la RCP thrombose : la référence est la décision de la RCP, "
+                               "pour les seules questions qu'elle a tranchées explicitement.")
                 if n_rep:
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Répondants", n_rep)
@@ -363,6 +371,14 @@ with tab_m:
 - *Stratégie globale* : combinaison interruption + jour de dernière prise + relais (+ jour de début), ou réversion en urgence immédiate.
 - Les questions conditionnelles (dernière prise, relais…) ne sont comptées que pour les répondants concernés (*n* affiché).
 - Seuls les cas marqués « Complete » dans REDCap sont comptés.
+
+**Vignettes de la RCP thrombose** (`Data/RCP/*.xlsx`, métadonnée *Origine* = « RCP », cas 101 et suivants)
+- Le cas *n* du fichier de la RCP devient le cas 100 + *n*. La RCP y figure comme un répondant unique
+  (rôle « RCP », sans niveau de confiance) : l'accord y vaut donc toujours 100 %.
+- Seules les réponses écrites explicitement par la RCP sont retenues ; une question qu'elle n'a pas tranchée
+  reste sans réponse, et la stratégie globale n'est retenue que si tous ses éléments sont précisés.
+- Sexe, ATC, Délais, Fonction rénale et ALR sont lus dans le fichier s'il en a la colonne, sinon déduits
+  du texte selon les conventions de `Métadonnées.xlsx` ; l'indication n'est jamais déduite.
 
 **Mettre à jour** : remplacez/ajoutez les exports dans `Data/<Spécialité>/` (le plus récent est utilisé) puis rechargez la page.
 """)
