@@ -155,18 +155,23 @@ per_case = (
 per_case["Nombre de répondants"] = per_case["Nombre de répondants"].fillna(0).astype(int)
 per_case["N° du cas"] = per_case["case_id"]
 
-view = per_case.copy()
+# Filtres sur les cas eux-mêmes (métadonnées, texte) : valent pour tous les onglets.
+cases_view = per_case.copy()
+for col, vals in filters.items():
+    if vals:
+        cases_view = cases_view[cases_view[col].isin(vals)]
+if q_text:
+    cases_view = cases_view[cases_view["texte"].str.contains(q_text, case=False, na=False)]
+if sort_by:
+    cases_view = cases_view.sort_values(sort_by, ascending=not descending, na_position="last", kind="stable")
+
+# Filtres sur les répondants humains : seulement pour les onglets qui affichent leurs réponses
+# (l'onglet Résultats LLM utilise cases_view : chaque essai a sa propre référence, figée).
+view = cases_view
 if only_answered:
     view = view[view["Nombre de répondants"] > 0]
 if min_rep:
     view = view[view["Nombre de répondants"] >= min_rep]
-for col, vals in filters.items():
-    if vals:
-        view = view[view[col].isin(vals)]
-if q_text:
-    view = view[view["texte"].str.contains(q_text, case=False, na=False)]
-if sort_by:
-    view = view.sort_values(sort_by, ascending=not descending, na_position="last", kind="stable")
 
 # ----------------------------------------------------------------------------- en-tête
 st.title("Gestion préopératoire des anticoagulants — vignettes cliniques")
@@ -457,12 +462,12 @@ with tab_l:
             st.warning("Les essais retenus n'ont pas tous les mêmes réglages (référence, nombre minimal de "
                        "répondants ou préprompt) : les résultats mélangent des conditions différentes.")
 
-        cel = cellules[cellules["case_id"].isin(set(view["case_id"]))]  # filtres de cas de la barre latérale
+        cel = cellules[cellules["case_id"].isin(set(cases_view["case_id"]))]  # filtres sur les cas (métadonnées, texte)
         agg_m = resultats.agreger(cel, essais, retenus, "modele")
         if not retenus:
             st.info("Aucun essai retenu.")
         elif agg_m.empty:
-            st.info("Aucune réponse notée parmi les cas affichés (voir les filtres de la barre latérale).")
+            st.info("Aucune réponse notée parmi les cas retenus par les filtres de métadonnées ou de texte.")
         else:
             j_s, n_s = resultats.taux_global(cel, retenus)
             jq = nq = 0
@@ -472,9 +477,9 @@ with tab_l:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Essais retenus", len(retenus))
             m2.metric("Modèles", sel["modele"].nunique())
-            m3.metric("Stratégie juste", pct(j_s / n_s), help=f"{j_s} / {n_s} réponses, cas affichés")
+            m3.metric("Stratégie juste", pct(j_s / n_s), help=f"{j_s} / {n_s} réponses, cas retenus par les filtres")
             m4.metric("Questions justes", pct(jq / nq if nq else np.nan),
-                      help=f"{jq} / {nq} réponses aux questions évaluées, cas affichés")
+                      help=f"{jq} / {nq} réponses aux questions évaluées, cas retenus par les filtres")
 
             g = (agg_m.groupby("modele")[["justes", "notees"]].sum()
                  .assign(taux=lambda d: d["justes"] / d["notees"])
@@ -503,7 +508,7 @@ with tab_l:
             if len(g) > 1:
                 st.subheader("Carte de la stratégie juste par cas et par modèle")
                 st.caption("Part des réponses retenues où le modèle a donné une stratégie majoritaire.")
-                ordre = [c for c in view["case_id"] if c in set(agg_m["case_id"])]
+                ordre = [c for c in cases_view["case_id"] if c in set(agg_m["case_id"])]
                 st.plotly_chart(llm_heatmap(agg_m, "modele", list(g.index), ordre), width="stretch",
                                 config={"displayModeBar": False})
 
@@ -514,7 +519,7 @@ with tab_l:
             st.caption(f"{modele} · {len(ids)} essai(s). Part des réponses qui font partie des réponses "
                        "majoritaires (avec un seul essai, 0 ou 100 %). Case vide = question non évaluée.")
             qs = [q for q in [STRATEGIE] + [lab for _, lab in QUESTIONS] if q in set(agg_q["question"])]
-            ordre = [c for c in view["case_id"] if c in set(agg_q["case_id"])]
+            ordre = [c for c in cases_view["case_id"] if c in set(agg_q["case_id"])]
             st.plotly_chart(llm_heatmap(agg_q, "question", qs, ordre), width="stretch",
                             config={"displayModeBar": False})
             st.download_button("Télécharger le détail (CSV)",
@@ -547,7 +552,8 @@ with tab_m:
 
 **Résultats LLM** (essais soumis par l'API de benchmark)
 - Chaque réponse est corrigée à sa soumission, par rapport à la référence figée à la création de son essai :
-  le choix des rôles de la barre latérale ne la modifie pas ; les autres filtres choisissent les cas affichés.
+  les filtres sur les répondants (rôles, nombre minimal, cas avec réponses) ne s'y appliquent pas ;
+  ceux sur les cas (métadonnées, origine, recherche dans le texte) choisissent les cas affichés.
 - *Juste* : la réponse du LLM fait partie des réponses majoritaires. Un refus compte comme faux ; une erreur
   d'appel est exclue ; seuls les cas évaluables de l'essai sont comptés.
 - Plusieurs essais d'un même modèle sont additionnés : une case vaut « réponses justes / réponses notées ».
