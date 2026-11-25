@@ -1,17 +1,17 @@
 """API de benchmark des LLM sur les vignettes cliniques AOD.
 
-Lancer en local :  AOD_API_KEYS=dev uv run uvicorn api:app --port 8502
+Lancer en local :  AOD_API_KEYS=moi:dev uv run uvicorn api:app --port 8502
 Documentation interactive : http://127.0.0.1:8502/docs
 
 Variables d'environnement :
-- AOD_API_KEYS   : clés d'accès autorisées, séparées par des virgules (obligatoire)
+- AOD_API_KEYS   : clés d'accès « nom:clé », séparées par des virgules (obligatoire) ;
+                   le nom du titulaire est enregistré avec chaque essai et chaque réponse
 - AOD_DATA_DIR   : dossier des données (par défaut ./Data, sinon ../Data)
 - AOD_STATE_DIR  : dossier où est stockée la base des essais (par défaut ./state)
 """
 from __future__ import annotations
 
 import os
-import secrets
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +20,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Security
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from aod.cles import lire_cles, titulaire
 from aod.data import META_COLUMNS, build_dataset, data_fingerprint, load_preprompt
 from aod.scoring import bilan, construire_reference, noter
 from aod.store import Store
@@ -72,14 +73,17 @@ _header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def verifier_cle(bearer: HTTPAuthorizationCredentials | None = Security(_bearer),
-                 cle: str | None = Security(_header)) -> None:
-    autorisees = [k.strip() for k in os.environ.get("AOD_API_KEYS", "").split(",") if k.strip()]
+                 cle: str | None = Security(_header)) -> str:
+    """Vérifie la clé (en-tête Bearer ou X-API-Key) et renvoie le nom de son titulaire."""
+    autorisees = lire_cles(os.environ.get("AOD_API_KEYS", ""))
     if not autorisees:
         raise HTTPException(503, "API non configurée : aucune clé définie (AOD_API_KEYS).")
-    fournie = (bearer.credentials if bearer else None) or cle
-    if not fournie or not any(secrets.compare_digest(fournie, k) for k in autorisees):
+    # Les deux en-têtes sont essayés : une valeur erronée dans l'un n'empêche pas l'autre de valider.
+    nom = titulaire([bearer.credentials if bearer else None, cle], autorisees)
+    if nom is None:
         raise HTTPException(401, "Clé d'API manquante ou invalide.",
                             headers={"WWW-Authenticate": "Bearer"})
+    return nom
 
 
 # --------------------------------------------------------------------------- application
@@ -168,12 +172,12 @@ class NouveauRun(BaseModel):
 
 @app.post("/runs", tags=["Essais"], dependencies=protege, status_code=201,
           summary="Créer un essai (la référence est figée à ce moment)")
-def creer_run(body: NouveauRun):
+def creer_run(body: NouveauRun, auteur: str = Depends(verifier_cle)):
     d = DONNEES.get()
     roles = _verifier_roles(body.roles)
     ref = construire_reference(d.ds.cases, d.ds.answers, roles, body.min_repondants)
     run = STORE.creer_run(body.modele, body.preprompt, roles, body.min_repondants,
-                          d.version, body.parametres, ref)
+                          d.version, body.parametres, ref, auteur=auteur)
     run.pop("reference")
     run["cas_evaluables"] = sorted(int(k) for k, v in ref.items() if v["evaluable"])
     return run
@@ -224,7 +228,7 @@ class Soumission(BaseModel):
 
 @app.post("/runs/{run_id}/reponses/{cas}", tags=["Essais"], dependencies=protege,
           summary="Soumettre la réponse du LLM pour un cas et recevoir la grille de correction")
-def soumettre(run_id: str, cas: int, body: Soumission):
+def soumettre(run_id: str, cas: int, body: Soumission, auteur: str = Depends(verifier_cle)):
     run = _run_ou_404(run_id)
     ref_cas = run["reference"].get(str(cas))
     if ref_cas is None:
@@ -236,5 +240,5 @@ def soumettre(run_id: str, cas: int, body: Soumission):
     else:
         grille = noter(ref_cas, sortie="")
         grille["erreurs"] = [f"pas de réponse exploitable (statut : {body.statut})"]
-    STORE.enregistrer_reponse(run_id, cas, body.statut, body.sortie, body.meta, grille)
-    return {"run_id": run_id, "cas": cas, "statut": body.statut, **grille}
+    STORE.enregistrer_reponse(run_id, cas, body.statut, body.sortie, body.meta, grille, soumis_par=auteur)
+    return {"run_id": run_id, "cas": cas, "statut": body.statut, "soumis_par": auteur, **grille}

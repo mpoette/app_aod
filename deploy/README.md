@@ -127,18 +127,31 @@ cd ~/vignettes-aod && git pull && uv sync --frozen && sudo systemctl restart vig
 
 **Les clés d'accès.** On les range hors du dépôt, dans un fichier que seul l'administrateur peut lire
 (`chmod 600`) ; systemd le lit au démarrage et passe son contenu à l'API comme variables d'environnement.
-`openssl rand -hex 32` génère une clé aléatoire de 64 caractères :
+Chaque clé porte le **nom de son titulaire** (`nom:clé`) : l'API enregistre ce nom avec chaque essai, ce qui
+permet de savoir qui a fait quoi. `openssl rand -hex 32` génère une clé aléatoire de 64 caractères :
 
 ```bash
-sudo mkdir -p /etc/vignettes-aod && echo "AOD_API_KEYS=$(openssl rand -hex 32)" | sudo tee /etc/vignettes-aod/api.env > /dev/null && sudo chmod 600 /etc/vignettes-aod/api.env
+sudo mkdir -p /etc/vignettes-aod && echo "AOD_API_KEYS=michael:$(openssl rand -hex 32)" | sudo tee /etc/vignettes-aod/api.env > /dev/null && sudo chmod 600 /etc/vignettes-aod/api.env
 ```
 
 ```bash
 sudo cat /etc/vignettes-aod/api.env
 ```
 
-Notez la clé affichée : c'est elle que le script de benchmark utilisera (`AOD_API_KEY`). Pour donner une clé
-distincte à un collègue, ajoutez-la à la suite, séparée par une virgule, puis redémarrez l'API.
+Notez la clé affichée, **sans** le préfixe `michael:` : c'est elle que le script de benchmark utilisera
+(`AOD_API_KEY`).
+
+**Donner une clé à un collègue** (ici `alice`) : on ajoute `,alice:<nouvelle clé>` en fin de ligne, puis on
+redémarre l'API, qui ne lit ce fichier qu'au démarrage. La clé s'affiche une fois, pour être transmise par un
+canal sûr (gestionnaire de mots de passe, messagerie chiffrée) :
+
+```bash
+NOUVELLE=$(openssl rand -hex 32) && sudo sed -i "s/\$/,alice:$NOUVELLE/" /etc/vignettes-aod/api.env && sudo systemctl restart aod-api && echo "Clé d'alice : $NOUVELLE"
+```
+
+**Retirer une clé** : `sudo nano /etc/vignettes-aod/api.env`, supprimer `,alice:<clé>`, enregistrer, puis
+`sudo systemctl restart aod-api`. Une clé sans nom (ancien format) reste acceptée, attribuée à `sans_nom` ;
+pour la nommer, il suffit d'ajouter `nom:` devant.
 
 **Le service**, sur le même principe que celui de l'explorateur :
 

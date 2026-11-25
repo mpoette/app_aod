@@ -55,12 +55,15 @@ script ──POST /runs───────────────────
 ### Lancer l'API en local
 
 ```bash
-AOD_API_KEYS=dev uv run uvicorn api:app --port 8502
+AOD_API_KEYS=moi:dev uv run uvicorn api:app --port 8502
 ```
 
 Documentation interactive (essayer chaque requête depuis le navigateur) : <http://127.0.0.1:8502/docs>.
 Toutes les requêtes, sauf `/health`, exigent une clé : en-tête `Authorization: Bearer <clé>`
-ou `X-API-Key: <clé>`. Les clés autorisées sont listées dans `AOD_API_KEYS` (séparées par des virgules).
+ou `X-API-Key: <clé>`. Les clés autorisées sont listées dans `AOD_API_KEYS`, sous la forme `nom:clé`,
+séparées par des virgules (ex. `michael:3f9a…,alice:7c21…`). Le nom du titulaire de la clé est enregistré
+avec chaque essai (`auteur`) et chaque réponse (`soumis_par`) ; il n'est jamais transmis par le client.
+Une clé sans nom (ancien format) reste acceptée, attribuée à `sans_nom`.
 
 ### Benchmarker un modèle Claude
 

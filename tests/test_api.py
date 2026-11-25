@@ -10,7 +10,7 @@ pytestmark = pytest.mark.skipif(not any(DATA.glob("*.xlsx")), reason="pas de don
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("AOD_API_KEYS", "cle-test")
+    monkeypatch.setenv("AOD_API_KEYS", "testeur:cle-test")
     monkeypatch.setenv("AOD_STATE_DIR", str(tmp_path))
     import importlib
 
@@ -42,6 +42,7 @@ def test_essai_complet_avec_reponses_majoritaires(client):
 
     run = client.post("/runs", json={"modele": "oracle", "preprompt": True}).json()
     assert run["cas_evaluables"]
+    assert run["auteur"] == "testeur"
     import api
     ref = api.STORE.run(run["id"])["reference"]
     for cas in run["cas_evaluables"]:
@@ -65,6 +66,7 @@ def test_essai_complet_avec_reponses_majoritaires(client):
         rep["niveau_confiance"] = 7
         g = client.post(f"/runs/{run['id']}/reponses/{cas}", json={"reponse": rep}).json()
         assert g["strategie"]["statut"] == "juste", (cas, g)
+        assert g["soumis_par"] == "testeur"
 
     bilan = client.get(f"/runs/{run['id']}").json()["bilan"]
     assert bilan["strategie"]["taux"] == 1.0

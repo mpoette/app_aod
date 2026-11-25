@@ -149,7 +149,8 @@ def main():
                        "client": "bench/benchmark_claude.py", "notes": args.notes},
     })
     cas = args.cas or run["cas_evaluables"]
-    print(f"Essai {run['id']} — {args.modele} — données {run['version_donnees']} — {len(cas)} cas\n")
+    print(f"Essai {run['id']} — {args.modele} — par {run.get('auteur') or '?'} — "
+          f"données {run['version_donnees']} — {len(cas)} cas\n")
 
     for n in cas:
         v = api.get(f"/vignettes/{n}", preprompt=str(preprompt).lower())
