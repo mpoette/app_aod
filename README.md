@@ -83,7 +83,25 @@ uv run bench/benchmark_claude.py --api http://127.0.0.1:8502 --modele claude-opu
 Options : `--sans-preprompt`, `--effort low|medium|high|xhigh|max`, `--roles expert_clot expert_gihp`
 (référence restreinte à certains rôles ; `--roles rcp` = seulement les vignettes de la RCP),
 `--min-repondants 2`, `--cas 1 5 6`, `--notes "..."`.
-Pour un autre fournisseur, remplacer la fonction `interroger_claude` du script.
+
+### Benchmarker un autre modèle (format compatible OpenAI)
+
+`bench/benchmark_openai.py` appelle tout serveur qui expose `/v1/chat/completions` : LiteLLM, vLLM, Ollama,
+llama.cpp, LM Studio, OpenRouter, ou les API de Mistral, DeepSeek, OpenAI, Gemini… Comme pour Claude, chaque
+vignette est envoyée seule, sans historique ni outils (ne pas passer par un agent comme OpenCode, dont le prompt
+système et les outils fausseraient la comparaison). Sans dépendance, le fichier peut être copié seul sur la
+machine qui joint le modèle :
+
+```bash
+export AOD_API_KEY=...                      # clé de l'API de benchmark
+export LLM_API_KEY=...                      # clé du serveur du modèle, si demandée
+python3 bench/benchmark_openai.py --base-url http://localhost:11434/v1 --modele mon-modele --nom mon-modele-32b
+```
+
+`--nom` : nom enregistré dans l'essai, si celui du serveur est un alias (le nom réellement servi est gardé
+dans `meta.modele_servi`). Autres options : `--temperature 0`, `--timeout 600`, et celles du script Claude.
+Le raisonnement `<think>…</think>` de certains modèles (Qwen3, DeepSeek-R1) est retiré avant correction.
+L'essai n'est créé qu'après la première réponse du modèle : une erreur de configuration ne laisse pas d'essai vide.
 
 ### Règles de correction
 
@@ -123,6 +141,7 @@ fichier fictif ; le test de bout en bout de l'API s'exécute seulement si des do
 | `aod/store.py` | Stockage des essais et des réponses (SQLite, dans `state/`, non versionné) |
 | `aod/resultats.py` | Agrégation des essais pour l'onglet « Résultats LLM » de l'explorateur |
 | `bench/benchmark_claude.py` | Script client : benchmark d'un modèle Claude |
+| `bench/benchmark_openai.py` | Script client : benchmark d'un modèle servi au format compatible OpenAI |
 | `tests/` | Tests (`uv run pytest`) |
 | `pyproject.toml`, `uv.lock`, `.python-version` | Projet uv : dépendances et versions figées |
 | `.streamlit/config.toml` | Configuration Streamlit |

@@ -18,8 +18,8 @@ Options utiles : --sans-preprompt, --effort high, --roles expert_clot expert_gih
 --roles rcp (seulement les vignettes de la RCP thrombose, cas 101 et suivants),
 --cas 1 5 6 (quelques cas seulement), --api http://127.0.0.1:8502 (API locale).
 
-Pour un autre fournisseur de LLM, il suffit de remplacer la fonction `interroger_claude`
-par une fonction qui prend le prompt et renvoie (texte, statut, meta).
+Pour un autre fournisseur de LLM : bench/benchmark_openai.py (format compatible OpenAI), ou remplacer
+la fonction `interroger_claude` par une fonction qui prend le prompt et renvoie (texte, statut, meta).
 """
 from __future__ import annotations
 
