@@ -1,5 +1,9 @@
 # Déploiement sur un VPS (Ubuntu)
 
+> Une fois l'installation faite, les commandes courantes (lancer un essai de LLM, gérer les clés de l'API et
+> les comptes du site, mettre à jour, vérifier les services) sont regroupées dans
+> [AIDE-MEMOIRE.md](AIDE-MEMOIRE.md).
+
 ## Vue d'ensemble
 
 ```

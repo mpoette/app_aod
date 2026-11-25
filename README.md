@@ -150,7 +150,7 @@ fichier fictif ; le test de bout en bout de l'API s'exécute seulement si des do
 | `tests/` | Tests (`uv run pytest`) |
 | `pyproject.toml`, `uv.lock`, `.python-version` | Projet uv : dépendances et versions figées |
 | `.streamlit/config.toml` | Configuration Streamlit |
-| `deploy/` | Fichiers et guide de déploiement sur un VPS (systemd, Nginx, HTTPS) |
+| `deploy/` | Fichiers et guide de déploiement sur un VPS (systemd, Nginx, HTTPS), aide-mémoire d'administration |
 
 ## Méthode
 
@@ -174,4 +174,5 @@ fichier fictif ; le test de bout en bout de l'API s'exécute seulement si des do
 
 ## Déploiement
 
-Voir [`deploy/README.md`](deploy/README.md).
+Installation : [`deploy/README.md`](deploy/README.md). Administration courante (essais de LLM, clés de l'API,
+comptes du site, mises à jour) : [`deploy/AIDE-MEMOIRE.md`](deploy/AIDE-MEMOIRE.md).
