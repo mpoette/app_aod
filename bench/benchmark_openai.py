@@ -1,5 +1,6 @@
+#!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = "==3.13.*"
 # dependencies = []
 # ///
 """Benchmark d'un LLM servi au format compatible OpenAI, via l'API de benchmark AOD.
@@ -9,11 +10,16 @@ LM Studio, OpenRouter, ou les API de Mistral, DeepSeek, OpenAI, Gemini… Le mod
 directement, une vignette par appel, sans historique ni outils : mêmes conditions que
 bench/benchmark_claude.py, pour que les essais soient comparables.
 
-Aucune dépendance : un Python 3.10+ suffit (le fichier peut être copié seul sur une machine).
+Lancement avec uv : le bloc « /// script » ci-dessus déclare la version de Python et les
+dépendances (aucune). uv trouve ou télécharge Python 3.13 et exécute le script sans créer de
+dossier .venv ; le fichier peut être copié seul sur une machine.
 
     export AOD_API_KEY="clé de l'API de benchmark"
     export LLM_API_KEY="clé du serveur du modèle"        # facultatif si le serveur n'en demande pas
-    python3 benchmark_openai.py --base-url http://localhost:11434/v1 --modele mon-modele
+    uv run benchmark_openai.py --base-url http://localhost:11434/v1 --modele mon-modele
+
+Sous Linux ou macOS, après `chmod +x benchmark_openai.py`, `./benchmark_openai.py …` suffit.
+Sans uv, `python3 benchmark_openai.py …` fonctionne aussi avec Python 3.10 ou plus récent.
 
 Options utiles : --nom (nom enregistré dans l'essai, si celui du serveur est un alias),
 --temperature 0, --sans-preprompt, --roles rcp, --cas 1 5 6, --timeout 600 (modèle lent).
@@ -28,6 +34,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import sys
 import time
 import urllib.error
@@ -39,6 +46,22 @@ API_DEFAUT = "https://aod.scitoul.fr/api"
 RAISONNEMENT = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
+def _contexte_ssl() -> ssl.SSLContext:
+    """Vérification HTTPS habituelle (magasin de certificats du système), sans le mode strict.
+
+    Depuis Python 3.13, le mode X.509 strict est actif par défaut. Il rejette les certificats
+    fabriqués par les proxys d'inspection HTTPS des réseaux d'entreprise ou d'hôpital
+    (« Missing Authority Key Identifier »), que les navigateurs acceptent. Seul ce mode est
+    retiré : la chaîne de certificats et le nom du serveur restent vérifiés, comme en Python 3.12.
+    """
+    ctx = ssl.create_default_context()
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return ctx
+
+
+SSL = _contexte_ssl()
+
+
 def _json(url: str, cle: str | None, corps: dict | None = None, methode: str = "GET",
           timeout: float = 60) -> dict:
     """Requête HTTP JSON ; lève urllib.error.HTTPError / URLError / TimeoutError."""
@@ -47,7 +70,7 @@ def _json(url: str, cle: str | None, corps: dict | None = None, methode: str = "
         entetes["Authorization"] = f"Bearer {cle}"
     data = json.dumps(corps).encode() if corps is not None else None
     req = urllib.request.Request(url, data=data, method=methode, headers=entetes)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout, context=SSL) as r:
         return json.loads(r.read())
 
 

@@ -89,14 +89,19 @@ Options : `--sans-preprompt`, `--effort low|medium|high|xhigh|max`, `--roles exp
 `bench/benchmark_openai.py` appelle tout serveur qui expose `/v1/chat/completions` : LiteLLM, vLLM, Ollama,
 llama.cpp, LM Studio, OpenRouter, ou les API de Mistral, DeepSeek, OpenAI, Gemini… Comme pour Claude, chaque
 vignette est envoyée seule, sans historique ni outils (ne pas passer par un agent comme OpenCode, dont le prompt
-système et les outils fausseraient la comparaison). Sans dépendance, le fichier peut être copié seul sur la
-machine qui joint le modèle :
+système et les outils fausseraient la comparaison). Le fichier peut être copié seul sur la machine qui joint
+le modèle : son en-tête `/// script` déclare Python 3.13 et aucune dépendance, et `uv run` trouve ou télécharge
+ce Python puis exécute le script, sans créer de `.venv` (sans uv, `python3` ≥ 3.10 suffit aussi) :
 
 ```bash
 export AOD_API_KEY=...                      # clé de l'API de benchmark
 export LLM_API_KEY=...                      # clé du serveur du modèle, si demandée
-python3 bench/benchmark_openai.py --base-url http://localhost:11434/v1 --modele mon-modele --nom mon-modele-32b
+uv run bench/benchmark_openai.py --base-url http://localhost:11434/v1 --modele mon-modele --nom mon-modele-32b
 ```
+
+Derrière un proxy d'inspection HTTPS (réseau d'entreprise ou d'hôpital) : le script accepte les certificats de
+ce proxy présents dans le magasin du système ; si uv doit télécharger Python, ajouter `--native-tls` (ou
+`UV_NATIVE_TLS=1`) pour qu'il utilise lui aussi ce magasin.
 
 `--nom` : nom enregistré dans l'essai, si celui du serveur est un alias (le nom réellement servi est gardé
 dans `meta.modele_servi`). Autres options : `--temperature 0`, `--timeout 600`, et celles du script Claude.
