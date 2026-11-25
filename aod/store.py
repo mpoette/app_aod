@@ -111,10 +111,15 @@ class Store:
                  json.dumps(meta, ensure_ascii=False), json.dumps(grille, ensure_ascii=False), soumis_par),
             )
 
-    def reponses(self, run_id: str) -> list[dict]:
+    def reponses(self, run_id: str | None = None) -> list[dict]:
+        """Réponses d'un essai, ou de tous les essais si run_id est None (avec la clé run_id)."""
         with self._conn() as c:
-            rows = c.execute("SELECT * FROM reponses WHERE run_id = ? ORDER BY cas", (run_id,)).fetchall()
+            if run_id is None:
+                rows = c.execute("SELECT * FROM reponses ORDER BY run_id, cas").fetchall()
+            else:
+                rows = c.execute("SELECT * FROM reponses WHERE run_id = ? ORDER BY cas", (run_id,)).fetchall()
         return [{
+            **({"run_id": r["run_id"]} if run_id is None else {}),
             "cas": r["cas"], "soumis_le": r["soumis_le"], "soumis_par": r["soumis_par"],
             "statut": r["statut"], "sortie": r["sortie"],
             "meta": json.loads(r["meta"]), "grille": json.loads(r["grille"]),

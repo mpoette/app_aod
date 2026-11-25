@@ -5,6 +5,7 @@ Dossier de données : variable AOD_DATA_DIR, sinon ./Data (à côté de app.py),
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -16,8 +17,11 @@ import streamlit as st
 from aod.data import (
     META_COLUMNS, QUESTIONS, STRATEGIE, build_dataset, sort_values, summarize,
 )
+from aod import resultats
 
 _HERE = Path(__file__).resolve().parent
+# base des essais de l'API (même emplacement que celui de api.py)
+STATE_DB = Path(os.environ.get("AOD_STATE_DIR", _HERE / "state")) / "benchmark.sqlite"
 
 
 def _find_data_dir() -> Path:
@@ -93,6 +97,11 @@ def load(data_dir: str, _mtime: float):
 
 def data_mtime(d: Path) -> float:
     return max((p.stat().st_mtime for p in d.rglob("*") if p.is_file()), default=0)
+
+
+@st.cache_data(show_spinner="Lecture des essais de LLM…")
+def load_runs(path: str, _mtime: float):
+    return resultats.charger(Path(path))
 
 
 if not DATA_DIR.exists():
@@ -239,7 +248,7 @@ BADGE_COLORS = {"Spécialité": "violet", "ATC": "blue", "Délais": "orange", "I
                 "Fonction rénale": "gray", "ALR": "gray", "Sexe": "gray", "Origine": "red"}
 
 # ----------------------------------------------------------------------------- onglets
-tab_v, tab_o, tab_m = st.tabs(["🗂️ Vignettes", "📊 Vue d'ensemble", "ℹ️ Méthode"])
+tab_v, tab_o, tab_l, tab_m = st.tabs(["🗂️ Vignettes", "📊 Vue d'ensemble", "🤖 Résultats LLM", "ℹ️ Méthode"])
 
 with tab_v:
     t1, t2, t3 = st.columns([2, 2, 3], vertical_alignment="bottom")
@@ -356,6 +365,162 @@ with tab_o:
                           xaxis=dict(title=None))
         st.plotly_chart(bar, width="stretch", config={"displayModeBar": False})
 
+def llm_heatmap(agg: pd.DataFrame, colonne: str, x_order: list, case_order: list) -> go.Figure:
+    """Carte cas × (questions ou modèles) : part des réponses justes sur les essais retenus."""
+    w = {v: agg.pivot(index="case_id", columns=colonne, values=v).reindex(index=case_order, columns=x_order)
+         for v in ("taux", "justes", "notees", "reponses", "reference")}
+    custom = np.dstack([w["justes"].fillna(0).astype(int).values.astype(object),
+                        w["notees"].fillna(0).astype(int).values.astype(object),
+                        w["reponses"].fillna("—").values.astype(object),
+                        w["reference"].fillna("—").values.astype(object)])
+    fig = go.Figure(go.Heatmap(
+        z=w["taux"].values.astype(float), x=x_order, y=[f"Cas {i}" for i in case_order],
+        zmin=0, zmax=1, xgap=2, ygap=2,
+        colorscale=[[i / (len(SEQ_SCALE) - 1), col] for i, col in enumerate(SEQ_SCALE)],
+        customdata=custom,
+        hovertemplate="<b>%{y} — %{x}</b><br>Juste : %{customdata[0]} / %{customdata[1]} (%{z:.0%})"
+                      "<br>Réponse(s) du LLM : %{customdata[2]}<br>Référence : %{customdata[3]}<extra></extra>",
+        colorbar=dict(title="Juste", tickformat=".0%", thickness=10),
+    ))
+    fig.update_layout(height=max(320, 24 * len(case_order) + 120), margin=dict(l=0, r=0, t=10, b=0),
+                      yaxis=dict(autorange="reversed"), xaxis=dict(side="top"))
+    return fig
+
+
+# Couleur d'une marque : un emplacement fixe de la palette catégorielle (la couleur suit la marque,
+# jamais son rang), et une pastille de couleur proche pour le tableau des essais.
+MARQUE_STYLE = {"Google": (0, "🔵"), "Anthropic": (1, "🟠"), "OpenAI": (2, "🟢"), "Mistral": (3, "🟡"),
+                "Meta": (4, "🩷"), "Alibaba": (5, "🟩"), "DeepSeek": (6, "🟣"), "xAI": (7, "🔴")}
+
+
+def couleur_marque(m: str) -> str:
+    return CAT[MODE][MARQUE_STYLE[m][0]] if m in MARQUE_STYLE else NEUTRAL[MODE]
+
+
+with tab_l:
+    essais, cellules = load_runs(str(STATE_DB), STATE_DB.stat().st_mtime if STATE_DB.exists() else 0)
+    if essais.empty:
+        st.info("Aucun essai de LLM pour l'instant. Les essais sont créés par l'API de benchmark "
+                "(`POST /runs`) et apparaissent ici dès leurs premières réponses.")
+    else:
+        essais = essais.assign(jour=essais["cree_le"].dt.tz_convert("Europe/Paris").dt.tz_localize(None))
+        st.subheader("Essais")
+        f1, f2, f3, f4, f5 = st.columns([2, 3, 2, 1.3, 2])
+        f_marque = f1.multiselect("Marque", sorted(essais["marque"].unique()), placeholder="Toutes")
+        e = essais[essais["marque"].isin(f_marque)] if f_marque else essais
+        f_modele = f2.multiselect("Modèle", sorted(e["modele"].unique()), placeholder="Tous")
+        f_auteur = f3.multiselect("Utilisateur", sorted(essais["auteur"].unique()), placeholder="Tous")
+        f_pre = f4.selectbox("Préprompt", ["Tous", "Avec", "Sans"])
+        d0, d1 = essais["jour"].min().date(), essais["jour"].max().date()
+        f_dates = f5.date_input("Période", (d0, d1), min_value=d0, max_value=d1, format="DD/MM/YYYY")
+        if f_modele:
+            e = e[e["modele"].isin(f_modele)]
+        if f_auteur:
+            e = e[e["auteur"].isin(f_auteur)]
+        if f_pre != "Tous":
+            e = e[e["preprompt"] == (f_pre == "Avec")]
+        if len(f_dates) == 2:
+            e = e[e["jour"].dt.date.between(*f_dates)]
+        candidats = e.sort_values("cree_le", ascending=False)
+
+        exclus = st.session_state.setdefault("llm_exclus", set())  # survit au changement de filtres
+        grille = pd.DataFrame({
+            "Inclure": ~candidats["id"].isin(exclus),
+            "Marque": [f"{MARQUE_STYLE.get(m, (0, '⚪'))[1]} {m}" for m in candidats["marque"]],
+            "Modèle": candidats["modele"], "Date": candidats["jour"], "Utilisateur": candidats["auteur"],
+            "Stratégie juste": candidats["taux"], "Questions justes": candidats["taux_questions"],
+            "Cas notés": candidats["repondus"], "Refus": candidats["refus"],
+            "Préprompt": candidats["preprompt"], "Référence": candidats["reference"],
+            "Min. répondants": candidats["min_repondants"], "Paramètres": candidats["parametres"],
+            "Essai": candidats["id"],
+        })
+        cle = hashlib.md5("|".join(candidats["id"]).encode()).hexdigest()[:10]
+        edit = st.data_editor(
+            grille, hide_index=True, width="stretch", key=f"llm_essais_{cle}",
+            height=min(36 * len(grille) + 40, 400),
+            disabled=[c for c in grille.columns if c != "Inclure"],
+            column_config={
+                "Inclure": st.column_config.CheckboxColumn(width="small"),
+                "Date": st.column_config.DatetimeColumn(format="DD/MM/YYYY HH:mm"),
+                "Stratégie juste": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
+                "Questions justes": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
+            },
+        )
+        st.caption(f"{len(candidats)} essai(s) sur {len(essais)} après filtres. Décochez un essai pour l'exclure ; "
+                   "les essais d'un même modèle sont additionnés. Scores du tableau : sur tous les cas de l'essai.")
+        retenus = edit.loc[edit["Inclure"], "Essai"].tolist()
+        exclus.difference_update(retenus)
+        exclus.update(edit.loc[~edit["Inclure"], "Essai"])
+
+        sel = candidats[candidats["id"].isin(retenus)]
+        if sel[["reference", "min_repondants", "preprompt"]].drop_duplicates().shape[0] > 1:
+            st.warning("Les essais retenus n'ont pas tous les mêmes réglages (référence, nombre minimal de "
+                       "répondants ou préprompt) : les résultats mélangent des conditions différentes.")
+
+        cel = cellules[cellules["case_id"].isin(set(view["case_id"]))]  # filtres de cas de la barre latérale
+        agg_m = resultats.agreger(cel, essais, retenus, "modele")
+        if not retenus:
+            st.info("Aucun essai retenu.")
+        elif agg_m.empty:
+            st.info("Aucune réponse notée parmi les cas affichés (voir les filtres de la barre latérale).")
+        else:
+            j_s, n_s = resultats.taux_global(cel, retenus)
+            jq = nq = 0
+            for _, lab in QUESTIONS:
+                j, n = resultats.taux_global(cel, retenus, lab)
+                jq, nq = jq + j, nq + n
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Essais retenus", len(retenus))
+            m2.metric("Modèles", sel["modele"].nunique())
+            m3.metric("Stratégie juste", pct(j_s / n_s), help=f"{j_s} / {n_s} réponses, cas affichés")
+            m4.metric("Questions justes", pct(jq / nq if nq else np.nan),
+                      help=f"{jq} / {nq} réponses aux questions évaluées, cas affichés")
+
+            g = (agg_m.groupby("modele")[["justes", "notees"]].sum()
+                 .assign(taux=lambda d: d["justes"] / d["notees"])
+                 .join(sel.groupby("modele").agg(marque=("marque", "first"), essais=("id", "size")))
+                 .sort_values("taux", ascending=False))
+            st.subheader("Stratégie juste par modèle")
+            bar = go.Figure()
+            for m in sorted(g["marque"].unique()):  # une série par marque : couleur et légende
+                gm = g[g["marque"] == m]
+                bar.add_bar(
+                    y=gm.index, x=gm["taux"], orientation="h", name=m,
+                    marker=dict(color=couleur_marque(m), cornerradius=4),
+                    text=[f"{v:.0%}" for v in gm["taux"]], textposition="outside",
+                    customdata=np.stack([gm["justes"], gm["notees"], gm["essais"]], axis=-1),
+                    hovertemplate="<b>%{y}</b><br>%{customdata[0]} / %{customdata[1]} stratégies justes"
+                                  "<br>%{customdata[2]} essai(s)<extra></extra>",
+                )
+            bar.update_layout(
+                height=40 * len(g) + 90, margin=dict(l=0, r=0, t=30, b=0), bargap=0.35,
+                xaxis=dict(range=[0, 1.12], tickformat=".0%", gridcolor="rgba(128,128,128,0.15)"),
+                yaxis=dict(categoryorder="array", categoryarray=list(g.index)[::-1]),
+                legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, title=None),
+            )
+            st.plotly_chart(bar, width="stretch", config={"displayModeBar": False})
+
+            if len(g) > 1:
+                st.subheader("Carte de la stratégie juste par cas et par modèle")
+                st.caption("Part des réponses retenues où le modèle a donné une stratégie majoritaire.")
+                ordre = [c for c in view["case_id"] if c in set(agg_m["case_id"])]
+                st.plotly_chart(llm_heatmap(agg_m, "modele", list(g.index), ordre), width="stretch",
+                                config={"displayModeBar": False})
+
+            st.subheader("Détail par question")
+            modele = st.selectbox("Modèle", list(g.index)) if len(g) > 1 else g.index[0]
+            ids = sel.loc[sel["modele"] == modele, "id"].tolist()
+            agg_q = resultats.agreger(cel, essais, ids, "question")
+            st.caption(f"{modele} · {len(ids)} essai(s). Part des réponses qui font partie des réponses "
+                       "majoritaires (avec un seul essai, 0 ou 100 %). Case vide = question non évaluée.")
+            qs = [q for q in [STRATEGIE] + [lab for _, lab in QUESTIONS] if q in set(agg_q["question"])]
+            ordre = [c for c in view["case_id"] if c in set(agg_q["case_id"])]
+            st.plotly_chart(llm_heatmap(agg_q, "question", qs, ordre), width="stretch",
+                            config={"displayModeBar": False})
+            st.download_button("Télécharger le détail (CSV)",
+                               agg_q.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                               f"resultats_{modele}.csv", "text/csv")
+
 with tab_m:
     st.markdown(f"""
 **Sources** (dossier `{DATA_DIR}`)
@@ -379,6 +544,13 @@ with tab_m:
   reste sans réponse, et la stratégie globale n'est retenue que si tous ses éléments sont précisés.
 - Sexe, ATC, Délais, Fonction rénale et ALR sont lus dans le fichier s'il en a la colonne, sinon déduits
   du texte selon les conventions de `Métadonnées.xlsx` ; l'indication n'est jamais déduite.
+
+**Résultats LLM** (essais soumis par l'API de benchmark)
+- Chaque réponse est corrigée à sa soumission, par rapport à la référence figée à la création de son essai :
+  le choix des rôles de la barre latérale ne la modifie pas ; les autres filtres choisissent les cas affichés.
+- *Juste* : la réponse du LLM fait partie des réponses majoritaires. Un refus compte comme faux ; une erreur
+  d'appel est exclue ; seuls les cas évaluables de l'essai sont comptés.
+- Plusieurs essais d'un même modèle sont additionnés : une case vaut « réponses justes / réponses notées ».
 
 **Mettre à jour** : remplacez/ajoutez les exports dans `Data/<Spécialité>/` (le plus récent est utilisé) puis rechargez la page.
 """)

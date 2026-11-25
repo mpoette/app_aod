@@ -19,6 +19,10 @@ Le dépôt contient deux outils qui partagent le même noyau (`aod/`) :
 - **Filtres** : métadonnées, rôle des répondants, nombre minimal de répondants, recherche dans le texte.
 - **Tri** multicritère : métadonnées, accord, confiance, nombre de répondants.
 - **Vue d'ensemble** : tableau récapitulatif exportable en CSV, carte de l'accord cas × question, accord selon une métadonnée.
+- **Résultats LLM** : essais soumis par l'API de benchmark, lus dans `state/benchmark.sqlite`. Tableau de
+  tous les essais (marque, modèle, date, utilisateur, scores…), filtrable, chaque essai pouvant être décoché ;
+  pour la sélection : stratégie juste par modèle (couleur par marque), carte cas × modèle, carte cas × question
+  d'un modèle. Les essais d'un même modèle sont additionnés.
 - **Vignettes de la RCP thrombose** : fondues parmi les cas de l'étude (cas 101 et suivants), repérables par
   la métadonnée *Origine* = « RCP » ; leur référence est la décision de la RCP (voir [Méthode](#méthode)).
 
@@ -117,6 +121,7 @@ fichier fictif ; le test de bout en bout de l'API s'exécute seulement si des do
 | `aod/rcp.py` | Lecture des vignettes de la RCP thrombose (`Data/RCP/*.xlsx`) |
 | `aod/scoring.py` | Référence, lecture et validation des sorties de LLM, grille de correction, bilan |
 | `aod/store.py` | Stockage des essais et des réponses (SQLite, dans `state/`, non versionné) |
+| `aod/resultats.py` | Agrégation des essais pour l'onglet « Résultats LLM » de l'explorateur |
 | `bench/benchmark_claude.py` | Script client : benchmark d'un modèle Claude |
 | `tests/` | Tests (`uv run pytest`) |
 | `pyproject.toml`, `uv.lock`, `.python-version` | Projet uv : dépendances et versions figées |
